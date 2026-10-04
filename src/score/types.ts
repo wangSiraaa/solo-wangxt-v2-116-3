@@ -130,11 +130,25 @@ export interface RehearsalMark {
   createdAt: string
 }
 
+export type DiagnosticStatus = 'pending' | 'confirmed'
+
+export interface DiagnosticReview {
+  /** 由诊断本身的级别/代码/文字/位置派生，确认备注不会改写解析诊断 */
+  diagnosticKey: string
+  /** 生成核对记录时的 XML 内容指纹，同一份 XML 重新载入时才能恢复 */
+  xmlSignature: string
+  status: DiagnosticStatus
+  note: string
+  updatedAt: string
+}
+
 export interface StoredProject {
   id: string
   name: string
   originalXml: string
   marks: RehearsalMark[]
+  /** 诊断核对记录，仅属于本工程，不写回 XML */
+  reviews: DiagnosticReview[]
   updatedAt: string
   createdAt: string
 }

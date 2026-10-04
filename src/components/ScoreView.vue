@@ -15,6 +15,8 @@ const props = defineProps<{
   path: BuiltPath | null
   activeStepIndex: number | null
   interactable?: boolean
+  focusMeasureIndex?: number | null
+  focusNonce?: number
 }>()
 
 const emit = defineEmits<{
@@ -135,8 +137,38 @@ function drawOverlay(): void {
       group.appendChild(active)
     }
 
+    if (props.focusMeasureIndex === measure.index) {
+      const focus = document.createElementNS('http://www.w3.org/0000/svg', 'rect')
+      focus.setAttribute('x', String(rect.x))
+      focus.setAttribute('y', String(rect.y))
+      focus.setAttribute('width', String(rect.width))
+      focus.setAttribute('height', String(rect.height))
+      focus.setAttribute('class', 'measure-focus')
+      group.appendChild(focus)
+    }
+
     overlay.appendChild(group)
   }
+}
+
+/** 诊断清单“定位小节”：把相关书面小节滚动到可视区，定位框只作提示，不改任何路径状态。 */
+function scrollToMeasure(measureIndex: number, attempt = 0): void {
+  if (!osmdRef.value) return
+  const group = osmdRef.value.querySelector(`[data-measure-index="${measureIndex}"]`)
+  if (!group) {
+    // OSMD 尚未渲染出覆盖层时重试几次
+    if (attempt < 6) window.setTimeout(() => scrollToMeasure(measureIndex, attempt + 1), 90)
+    return
+  }
+  const rect = (group as SVGGraphicsElement).getBoundingClientRect()
+  const host = osmdRef.value.closest('.score-host')
+  if (host) {
+    host.scrollBy({
+      top: rect.top - host.getBoundingClientRect().top - host.clientHeight / 3,
+      behavior: 'smooth',
+    })
+  }
+  drawOverlay()
 }
 
 function onContainerClick(event: MouseEvent): void {
@@ -146,8 +178,16 @@ function onContainerClick(event: MouseEvent): void {
 }
 
 watch(() => props.xml, render, { immediate: true })
-watch(() => [props.activeStepIndex, props.path], drawOverlay)
+watch(() => [props.activeStepIndex, props.path, props.focusMeasureIndex], drawOverlay)
 watch(() => props.measures, () => window.setTimeout(drawOverlay, 80))
+watch(
+  () => props.focusNonce,
+  (nonce) => {
+    if (nonce !== undefined && props.focusMeasureIndex !== null && props.focusMeasureIndex !== undefined) {
+      scrollToMeasure(props.focusMeasureIndex)
+    }
+  },
+)
 
 resizeObserver = new ResizeObserver(() => window.setTimeout(drawOverlay, 100))
 if (hostRef.value) resizeObserver.observe(hostRef.value)

@@ -184,8 +184,58 @@ button, input, select, textarea { font: inherit; }
 .mark-list small { color: #8090a7; }
 .mark-list button { background: none; border: 0; color: #f28d8d; padding: 0; cursor: pointer; text-align: left; }
 
-.warnings-panel { max-height: 360px; overflow: auto; }
-.warning { display: grid; gap: 3px; padding: 8px; border-radius: 8px; margin-bottom: 7px; font-size: 12px; }
+.warnings-panel { max-height: none; overflow: visible; }
+.warning { display: grid; gap: 5px; padding: 8px; border-radius: 8px; margin-bottom: 7px; font-size: 12px; }
 .warning.error { background: rgba(220, 70, 70, .13); border: 1px solid rgba(238, 91, 91, .32); }
 .warning.warning { background: rgba(240, 170, 50, .12); border: 1px solid rgba(240, 170, 50, .28); }
 .warning.info { background: rgba(70, 130, 230, .12); border: 1px solid rgba(100, 150, 245, .25); }
+.warning-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.warning-message { color: #e8edf5; line-height: 1.5; }
+.warning.confirmed { box-shadow: inset 3px 0 0 #53c98a; }
+.checklist-summary { margin: 0 0 10px; line-height: 1.55; }
+.review-badge { border-radius: 999px; padding: 1px 8px; font-size: 11px; font-weight: 700; }
+.review-badge.pending { background: rgba(240, 170, 50, .2); color: #ffce72; }
+.review-badge.confirmed { background: rgba(60, 190, 120, .2); color: #70df99; }
+.locate-button {
+  margin-left: auto;
+  background: #22304c;
+  border: 1px solid #3d5280;
+  color: #b9ccff;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.locate-button:hover { filter: brightness(1.18); }
+.locate-button em { color: #8fa3cc; font-style: normal; }
+.review-controls { display: flex; gap: 6px; }
+.review-toggle {
+  border: 1px solid #3a455c;
+  background: transparent;
+  color: #93a1b8;
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.review-toggle.on { background: #2c3b58; border-color: #5d7ab5; color: #e8edf5; font-weight: 600; }
+.review-note {
+  width: 100%;
+  min-height: 46px;
+  resize: vertical;
+  background: #111620;
+  color: #e8edf5;
+  border: 1px solid #354057;
+  border-radius: 7px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.measure-focus {
+  fill: none;
+  stroke: #ffd23c;
+  stroke-width: 2.4;
+  stroke-dasharray: 7 4;
+  pointer-events: none;
+  filter: drop-shadow(0 0 3px rgba(255, 210, 60, .8));
+}

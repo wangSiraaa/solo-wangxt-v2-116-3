@@ -5,6 +5,7 @@ globalThis.DOMParser = dom.window.DOMParser
 globalThis.document = dom.window.document
 
 import { buildPerformancePath, parseMusicXml } from '../src/score/parser'
+import { buildDiagnosticEntries, diagnosticKey, xmlSignature } from '../src/score/diagnostics'
 import { fullSampleXml, unclosedJumpXml } from '../src/score/samples'
 
 const xml = fullSampleXml()
@@ -45,6 +46,30 @@ if (JSON.stringify(dsPath.steps.map((step) => step.measureNumber)) !== JSON.stri
   throw new Error(`D.S. al Coda 路径错误：${dsPath.steps.map((step) => step.measureNumber).join(', ')}`)
 }
 if (!dsPath.closed) throw new Error('D.S. al Coda 样例路径应可闭合')
+
+// --- 诊断核对清单：稳定键、定位与原诊断不变 ---
+const badEntries = buildDiagnosticEntries(badPath, bad.measures)
+const missingSegno = badEntries.find((entry) => entry.warning.code === 'missing-segno')
+if (!missingSegno) throw new Error('核对清单应包含缺少 Segno 诊断')
+if (missingSegno.measureIndex !== 2) throw new Error('缺 Segno 诊断应定位到发起 D.S. 的第 3 小节')
+// 路径确实演奏到了 D.S. 记号所在小节，之后才无法闭合；该小节仍在实际路径中
+if (!missingSegno.isPlayed) throw new Error('第 3 小节在跳转失败前已被到达，应标记为在实际路径中')
+
+// 重新解析同一 XML，诊断键必须完全一致，核对记录才能恢复
+const badReload = buildPerformancePath(parseMusicXml(unclosedJumpXml()))
+const reloadedKeys = badReload.warnings.map((warning, index) => diagnosticKey(warning, index))
+const originalKeys = badPath.warnings.map((warning, index) => diagnosticKey(warning, index))
+if (JSON.stringify(reloadedKeys) !== JSON.stringify(originalKeys)) {
+  throw new Error('同一 XML 重新载入后诊断键不一致，核对记录无法恢复')
+}
+
+// 确认状态不得改变原错误级别与路径闭合结论
+if (missingSegno.warning.level !== 'error') throw new Error('原诊断级别必须始终是错误')
+if (badPath.closed) throw new Error('确认备注不能让路径变成已闭合')
+
+// XML 指纹：同内容一致，换一份内容不同
+if (xmlSignature(unclosedJumpXml()) !== xmlSignature(unclosedJumpXml())) throw new Error('同一 XML 指纹应一致')
+if (xmlSignature(unclosedJumpXml()) === xmlSignature(fullSampleXml())) throw new Error('不同工程的 XML 指纹不应相同')
 
 console.log(JSON.stringify({
   expected,

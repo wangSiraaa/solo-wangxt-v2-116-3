@@ -87,6 +87,8 @@
             :measures="score.measures"
             :path="path"
             :active-step-index="activeStepIndex"
+            :focus-measure-index="focusMeasureIndex"
+            :focus-nonce="focusNonce"
             interactable
             @select-measure="chooseMeasure"
           />
@@ -156,11 +158,52 @@
         </section>
 
         <section class="panel warnings-panel">
-          <h2>记号诊断（不静默忽略）</h2>
+          <h2>诊断核对清单（原诊断不被改写）</h2>
           <p v-if="!path?.warnings.length" class="muted">没有诊断信息。</p>
-          <div v-for="(warning, index) in path?.warnings ?? []" :key="index" :class="['warning', warning.level]">
-            <strong>{{ warning.level === 'error' ? '错误' : warning.level === 'warning' ? '警告' : '信息' }}</strong>
-            <span>{{ warning.message }}</span>
+          <p v-else class="muted checklist-summary">
+            共 {{ diagnosticItems.length }} 条诊断 · 已确认 {{ confirmedCount }} 条。
+            备注与状态只属于本工程；确认后原错误级别与“路径可闭合”结论仍原样显示，不代表路径已修复。
+          </p>
+          <div
+            v-for="item in diagnosticItems"
+            :key="item.key"
+            :class="['warning', item.warning.level, { confirmed: item.review?.status === 'confirmed' }]"
+          >
+            <div class="warning-head">
+              <strong>{{ item.warning.level === 'error' ? '错误' : item.warning.level === 'warning' ? '警告' : '信息' }}</strong>
+              <span v-if="item.review?.status === 'confirmed'" class="review-badge confirmed">✓ 已确认</span>
+              <span v-else-if="item.review" class="review-badge pending">待确认</span>
+              <button
+                v-if="item.measureIndex !== null"
+                class="locate-button"
+                :title="item.isPlayed ? '定位到相关书面小节（在实际路径中）' : '定位到相关书面小节（当前路径不演奏它）'"
+                @click="locateDiagnostic(item.measureIndex)"
+              >
+                定位小节 {{ score?.measures[item.measureIndex]?.number }}
+                <em v-if="!item.isPlayed">（不在当前路径中）</em>
+              </button>
+            </div>
+            <span class="warning-message">{{ item.warning.message }}</span>
+            <div class="review-controls">
+              <button
+                :class="['review-toggle', { on: item.review?.status === 'pending' }]"
+                @click="setReviewStatus(item.key, 'pending')"
+              >
+                待确认
+              </button>
+              <button
+                :class="['review-toggle', { on: item.review?.status === 'confirmed' }]"
+                @click="setReviewStatus(item.key, 'confirmed')"
+              >
+                已确认
+              </button>
+            </div>
+            <textarea
+              class="review-note"
+              :value="item.review?.note ?? ''"
+              placeholder="本地备注：核对结论写在这里，不写回 XML，也不会改变诊断级别"
+              @input="setReviewNote(item.key, ($event.target as HTMLTextAreaElement).value)"
+            />
           </div>
         </section>
       </aside>
@@ -177,13 +220,15 @@ import {
   deleteProject,
   downloadText,
   exportProject,
+  findProjectByXml,
   importProjectFile,
   listProjects,
   saveProject,
 } from './storage/projects'
+import { buildDiagnosticEntries, xmlSignature } from './score/diagnostics'
 import { arrivalsFor, buildPerformancePath, formatTime, parseMusicXml, type ParsedScore } from './score/parser'
 import { sampleLibrary } from './score/samples'
-import type { RehearsalMark, StoredProject } from './score/types'
+import type { DiagnosticReview, DiagnosticStatus, RehearsalMark, StoredProject } from './score/types'
 
 const projects = ref<StoredProject[]>([])
 const project = ref<StoredProject | null>(null)
@@ -197,12 +242,40 @@ const playing = ref(false)
 const markLabel = ref('')
 const markComment = ref('')
 const beatEvents = ref<BeatEvent[]>([])
+const focusMeasureIndex = ref<number | null>(null)
+const focusNonce = ref(0)
 let metronome: Metronome | null = null
 let rafHandle = 0
 
 const selectedMeasure = computed(() => score.value?.measures[selectedMeasureIndex.value] ?? null)
 const selectedOccurrences = computed(() => path.value ? arrivalsFor(path.value, selectedMeasureIndex.value) : [])
 const playProgress = computed(() => path.value && path.value.totalSeconds > 0 ? currentScoreTime.value / path.value.totalSeconds : 0)
+
+const currentXmlSignature = computed(() => project.value ? xmlSignature(project.value.originalXml) : '')
+
+/** 只显示与当前 XML 指纹一致的核对记录；换工程时其他工程的记录不会出现。 */
+const reviewMap = computed(() => {
+  const signature = currentXmlSignature.value
+  return new Map(
+    (project.value?.reviews ?? [])
+      .filter((review) => review.xmlSignature === signature)
+      .map((review) => [review.diagnosticKey, review]),
+  )
+})
+
+type DiagnosticItem = ReturnType<typeof buildDiagnosticEntries>[number] & {
+  review: DiagnosticReview | null
+}
+
+const diagnosticItems = computed<DiagnosticItem[]>(() => {
+  if (!path.value || !score.value) return []
+  return buildDiagnosticEntries(path.value, score.value.measures).map((entry) => ({
+    ...entry,
+    review: reviewMap.value.get(entry.key) ?? null,
+  }))
+})
+
+const confirmedCount = computed(() => diagnosticItems.value.filter((item) => item.review?.status === 'confirmed').length)
 
 async function refreshProjectList(): Promise<void> {
   projects.value = await listProjects()
@@ -215,17 +288,27 @@ function analyze(xml: string): void {
   beatEvents.value = buildBeatEvents(path.value.steps, parsed.measures)
   selectedMeasureIndex.value = 0
   selectedOccurrence.value = path.value.arrivals[0]?.occurrences[0] ?? 1
+  focusMeasureIndex.value = null
   stopPlayback()
 }
 
-function loadXml(name: string, xml: string): void {
+async function loadXml(name: string, xml: string): Promise<void> {
+  // 同一 XML 重新载入（如刷新页面后再开同一样例）时，恢复该工程的核对记录与工程身份
+  const match = await findProjectByXml(xml)
+  if (match) {
+    project.value = JSON.parse(JSON.stringify(match)) as StoredProject
+    project.value.name = name
+    analyze(xml)
+    void refreshProjectList()
+    return
+  }
   project.value = createProject(name, xml)
   analyze(xml)
   void refreshProjectList()
 }
 
 function loadSample(sample: { name: string; getXml: () => string }): void {
-  loadXml(sample.name, sample.getXml())
+  void loadXml(sample.name, sample.getXml())
 }
 
 async function onFileSelected(event: Event): Promise<void> {
@@ -236,7 +319,7 @@ async function onFileSelected(event: Event): Promise<void> {
     window.alert('压缩 .mxl 尚未列入明确支持范围。请解压为 .musicxml/.xml 后打开。')
     return
   }
-  loadXml(file.name.replace(/\.(musicxml|xml)$/i, ''), await file.text())
+  await loadXml(file.name.replace(/\.(musicxml|xml)$/i, ''), await file.text())
   input.value = ''
 }
 
@@ -381,6 +464,45 @@ function removeMark(id: string): void {
   if (!project.value) return
   project.value.marks = project.value.marks.filter((mark) => mark.id !== id)
   void saveCurrentProject()
+}
+
+function upsertReview(key: string, patch: { status?: DiagnosticStatus; note?: string }): void {
+  if (!project.value) return
+  const signature = currentXmlSignature.value
+  const existing = project.value.reviews.find((review) => review.diagnosticKey === key && review.xmlSignature === signature)
+  const now = new Date().toISOString()
+  if (existing) {
+    if (patch.status !== undefined) existing.status = patch.status
+    if (patch.note !== undefined) existing.note = patch.note
+    existing.updatedAt = now
+  } else {
+    project.value.reviews.push({
+      diagnosticKey: key,
+      xmlSignature: signature,
+      status: patch.status ?? 'pending',
+      note: patch.note ?? '',
+      updatedAt: now,
+    })
+  }
+  project.value.updatedAt = now
+}
+
+function setReviewStatus(key: string, status: DiagnosticStatus): void {
+  upsertReview(key, { status })
+}
+
+function setReviewNote(key: string, note: string): void {
+  // 写了备注但还没明确表态时，默认进入“待确认”，避免备注静默丢失
+  const current = reviewMap.value.get(key)
+  upsertReview(key, { note, status: current?.status ?? 'pending' })
+}
+
+function locateDiagnostic(measureIndex: number | null): void {
+  if (measureIndex === null || !score.value) return
+  focusMeasureIndex.value = measureIndex
+  focusNonce.value += 1
+  // 与乐谱/实际路径联动：选中该书面小节，并落到路径中的第一次到达（若该小节被演奏）
+  chooseMeasure(measureIndex)
 }
 
 function formatDate(iso: string): string {

@@ -1,4 +1,5 @@
-import type { ProjectExport, StoredProject } from '../score/types'
+import type { DiagnosticReview, ProjectExport, StoredProject } from '../score/types'
+import { xmlSignature } from '../score/diagnostics'
 
 const databaseName = 'rehearsal-stand'
 const storeName = 'projects'
@@ -29,7 +30,7 @@ export async function listProjects(): Promise<StoredProject[]> {
   const database = await openDatabase()
   try {
     const result = await requestPromise(database.transaction(storeName, 'readonly').objectStore(storeName).getAll())
-    return result.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    return result.map(normalizeProject).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   } finally {
     database.close()
   }
@@ -60,9 +61,40 @@ export function createProject(name: string, originalXml: string): StoredProject 
     name,
     originalXml,
     marks: [],
+    reviews: [],
     updatedAt: now,
     createdAt: now,
   }
+}
+
+/**
+ * 兼容旧版工程：没有 reviews 字段时补空数组。
+ */
+export function normalizeProject(raw: StoredProject): StoredProject {
+  return {
+    ...raw,
+    marks: Array.isArray(raw.marks) ? raw.marks : [],
+    reviews: Array.isArray(raw.reviews) ? raw.reviews : [],
+  }
+}
+
+/**
+ * 按 XML 内容指纹找到同一首乐曲的已存工程（最近更新的一个）。
+ * 不同工程（不同 XML 指纹）互不匹配。
+ */
+export async function findProjectByXml(xml: string): Promise<StoredProject | null> {
+  const signature = xmlSignature(xml)
+  const all = await listProjects()
+  return all.find((item) => xmlSignature(item.originalXml) === signature) ?? null
+}
+
+/**
+ * 重新载入一份 XML 时恢复核对记录：
+ * 只在同一内容 XML 的工程中取回；不同工程（不同 XML 指纹）的记录不会串用。
+ */
+export async function findReviewsForXml(xml: string): Promise<DiagnosticReview[]> {
+  const match = await findProjectByXml(xml)
+  return match ? normalizeProject(match).reviews : []
 }
 
 export function exportProject(project: StoredProject): ProjectExport {
@@ -88,9 +120,9 @@ export async function importProjectFile(file: File): Promise<StoredProject> {
   if (parsed.format !== 'local-rehearsal-project/v1' || !parsed.project?.originalXml) {
     throw new Error('不是有效的 local-rehearsal-project/v1 工程文件。')
   }
-  return {
+  return normalizeProject({
     ...parsed.project,
     id: crypto.randomUUID(),
     updatedAt: new Date().toISOString(),
-  }
+  })
 }
