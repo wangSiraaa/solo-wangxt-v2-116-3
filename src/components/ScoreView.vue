@@ -15,6 +15,8 @@ const props = defineProps<{
   path: BuiltPath | null
   activeStepIndex: number | null
   interactable?: boolean
+  /** 诊断核对清单要求定位的书面小节下标。 */
+  focusedMeasureIndex: number | null
 }>()
 
 const emit = defineEmits<{
@@ -94,8 +96,9 @@ function drawOverlay(): void {
     const rect = collectMeasureRect(measure.index)
     if (!rect) continue
     const isActive = activeStep?.measureIndex === measure.index
+    const isFocused = props.focusedMeasureIndex === measure.index
     const arrivals = arrivedSet.get(measure.index)
-    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g')
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g') as SVGGElement
     group.dataset.measureIndex = String(measure.index)
 
     const hit = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
@@ -125,6 +128,16 @@ function drawOverlay(): void {
       group.appendChild(label)
     }
 
+    if (isFocused) {
+      const focused = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+      focused.setAttribute('x', String(rect.x))
+      focused.setAttribute('y', String(rect.y))
+      focused.setAttribute('width', String(rect.width))
+      focused.setAttribute('height', String(rect.height))
+      focused.setAttribute('class', 'measure-focus')
+      group.appendChild(focused)
+    }
+
     if (isActive) {
       const active = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
       active.setAttribute('x', String(rect.x))
@@ -145,8 +158,28 @@ function onContainerClick(event: MouseEvent): void {
   if (measureIndex !== null && measureIndex !== undefined) emit('selectMeasure', Number(measureIndex))
 }
 
+/** 清单要求定位时：把对应书面小节滚动到可视区域。 */
+function scrollToMeasure(measureIndex: number, attempt = 0): void {
+  const host = hostRef.value
+  const group = overlay?.querySelector<SVGGElement>(`[data-measure-index="${measureIndex}"]`)
+  if (!host || !group) {
+    // 覆盖层可能刚随尺寸变化重建，稍后重试一次。
+    if (attempt < 4) window.setTimeout(() => scrollToMeasure(measureIndex, attempt + 1), 60)
+    return
+  }
+  const groupRect = group.getBoundingClientRect()
+  const hostRect = host.getBoundingClientRect()
+  host.scrollBy({
+    left: groupRect.left - hostRect.left - host.clientWidth / 2 + groupRect.width / 2,
+    top: groupRect.top - hostRect.top - 80,
+    behavior: 'smooth',
+  })
+}
+
+defineExpose({ scrollToMeasure })
+
 watch(() => props.xml, render, { immediate: true })
-watch(() => [props.activeStepIndex, props.path], drawOverlay)
+watch(() => [props.activeStepIndex, props.path, props.focusedMeasureIndex], drawOverlay)
 watch(() => props.measures, () => window.setTimeout(drawOverlay, 80))
 
 resizeObserver = new ResizeObserver(() => window.setTimeout(drawOverlay, 100))

@@ -5,6 +5,7 @@ globalThis.DOMParser = dom.window.DOMParser
 globalThis.document = dom.window.document
 
 import { buildPerformancePath, parseMusicXml } from '../src/score/parser'
+import { buildDiagnosticEntries } from '../src/score/diagnostics'
 import { fullSampleXml, unclosedJumpXml } from '../src/score/samples'
 
 const xml = fullSampleXml()
@@ -27,6 +28,23 @@ const bad = parseMusicXml(unclosedJumpXml())
 const badPath = buildPerformancePath(bad)
 if (badPath.closed) throw new Error('缺少 Segno/Fine 的路径不应闭合')
 if (!badPath.warnings.some((warning) => warning.code === 'missing-segno')) throw new Error('应报告缺少 Segno')
+
+// 诊断核对清单：缺 Segno 诊断应联动到 D.S. 所在小节（样例第 3 小节，下标 2）。
+const badEntries = buildDiagnosticEntries(badPath.warnings, bad.measures)
+const missingSegno = badEntries.find((entry) => entry.warning.code === 'missing-segno')
+if (!missingSegno) throw new Error('核对清单缺少 missing-segno 条目')
+if (missingSegno.measureIndex !== 2) {
+  throw new Error(`缺 Segno 诊断应定位到第 3 小节，实际下标 ${missingSegno.measureIndex}`)
+}
+
+// 同一份 XML 重新解析，诊断指纹必须保持一致，核对记录才能恢复。
+const reloaded = parseMusicXml(unclosedJumpXml())
+const reloadedPath = buildPerformancePath(reloaded)
+const reloadedEntries = buildDiagnosticEntries(reloadedPath.warnings, reloaded.measures)
+if (JSON.stringify(reloadedEntries.map((entry) => entry.key)) !== JSON.stringify(badEntries.map((entry) => entry.key))) {
+  throw new Error('重新解析同一 XML 后诊断指纹发生变化，核对记录无法恢复')
+}
+if (reloadedPath.closed) throw new Error('确认备注不参与解析：缺 Segno 的路径仍应不闭合')
 
 const dsAlCodaXml = `<?xml version="1.0"?>
 <score-partwise version="4.0">

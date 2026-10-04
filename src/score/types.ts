@@ -120,6 +120,21 @@ export interface BuiltPath {
   closed: boolean
 }
 
+export type ReviewStatus = 'pending' | 'confirmed'
+
+export interface DiagnosticReview {
+  /** 对解析诊断内容的稳定指纹（同一份 XML 重新解析结果一致），不是诊断本身。 */
+  key: string
+  note: string
+  status: ReviewStatus
+  updatedAt: string
+  /** 建记录时的诊断快照，仅用于在当前 XML 找不到对应诊断时展示旧记录。 */
+  code: ParseWarning['code']
+  level: WarningLevel
+  message: string
+  measureNumber?: number
+}
+
 export interface RehearsalMark {
   id: string
   measureIndex: number
@@ -135,6 +150,8 @@ export interface StoredProject {
   name: string
   originalXml: string
   marks: RehearsalMark[]
+  /** 诊断核对记录：只属于本工程，不写回 XML，也不改变解析器结论。 */
+  reviews: DiagnosticReview[]
   updatedAt: string
   createdAt: string
 }

@@ -123,6 +123,7 @@ button, input, select, textarea { font: inherit; }
 .measure-arrival { fill: rgba(52, 111, 243, .08); stroke: rgba(52, 111, 245, .35); stroke-width: 1; pointer-events: none; }
 .measure-active { fill: rgba(255, 118, 36, .20); stroke: #ff702e; stroke-width: 2; pointer-events: none; }
 .measure-active.in-ending { fill: rgba(34, 190, 120, .18); stroke: #18a870; }
+.measure-focus { fill: rgba(244, 185, 66, .16); stroke: #f4b942; stroke-width: 2.5; stroke-dasharray: 6 4; pointer-events: none; }
 .arrival-label { font-size: 10px; fill: #2454c7; font-weight: 700; pointer-events: all; cursor: pointer; }
 .empty-state {
   height: 70vh;
@@ -189,3 +190,114 @@ button, input, select, textarea { font: inherit; }
 .warning.error { background: rgba(220, 70, 70, .13); border: 1px solid rgba(238, 91, 91, .32); }
 .warning.warning { background: rgba(240, 170, 50, .12); border: 1px solid rgba(240, 170, 50, .28); }
 .warning.info { background: rgba(70, 130, 230, .12); border: 1px solid rgba(100, 150, 245, .25); }
+
+.checklist-panel { max-height: none; }
+.path-conclusion {
+  border-radius: 8px;
+  padding: 7px 10px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 12px;
+  margin-bottom: 10px;
+}
+.path-conclusion.ok { background: rgba(60, 190, 120, .14); color: #70df99; }
+.path-conclusion.bad { background: rgba(235, 87, 87, .15); color: #ff8b8b; }
+.review-summary { font-size: 12px; color: #98a4b8; margin-bottom: 8px; }
+.review-filters { display: flex; gap: 6px; margin-bottom: 10px; }
+.filter-chip {
+  border: 1px solid #354057;
+  background: #111620;
+  color: #a7b2c6;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.filter-chip.active { border-color: #6788ff; color: #d9e4ff; background: #1b294a; }
+.status-pending { color: #f0b94c; }
+.status-confirmed { color: #5fd391; }
+
+.check-item {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 9px;
+  margin-bottom: 10px;
+  font-size: 12px;
+  background: #121927;
+}
+.check-item.error { border-left: 3px solid #e86060; }
+.check-item.warning { border-left: 3px solid #f0aa32; }
+.check-item.info { border-left: 3px solid #5b86e5; }
+.check-item.confirmed { background: #14201b; }
+.check-head { display: flex; align-items: center; gap: 8px; }
+.check-level { font-size: 12px; }
+.check-item.error .check-level { color: #ff8b8b; }
+.check-item.warning .check-level { color: #f0b94c; }
+.check-item.info .check-level { color: #88a8f0; }
+.check-code {
+  font-family: ui-monospace, monospace;
+  font-size: 10px;
+  color: #7e8ba2;
+  background: #0e1420;
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+.review-state {
+  margin-left: auto;
+  border-radius: 999px;
+  padding: 2px 9px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.review-state.pending { background: rgba(240, 185, 66, .16); color: #f0b94c; }
+.review-state.confirmed { background: rgba(60, 190, 120, .18); color: #5fd391; }
+.check-message { margin: 0; color: #d4deee; line-height: 1.5; }
+.locate-button {
+  justify-self: start;
+  border: 1px solid #4a623f;
+  background: #203020;
+  color: #bfe3a6;
+  border-radius: 7px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.locate-button:hover { filter: brightness(1.15); }
+.no-location { font-size: 11px; color: #7e8ba2; }
+.note-label { font-size: 11px; color: #8793a7; }
+.check-item textarea {
+  background: #0d131d;
+  color: #e8edf5;
+  border: 1px solid #354057;
+  border-radius: 7px;
+  padding: 7px 8px;
+  min-height: 52px;
+  resize: vertical;
+  font-size: 12px;
+}
+.review-actions { display: flex; gap: 8px; }
+.state-button {
+  border: 1px solid #354057;
+  background: #111620;
+  color: #a7b2c6;
+  border-radius: 7px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.state-button.active { border-color: #f0b94c; color: #f5d080; background: #2c2513; }
+.state-button.confirm.active { border-color: #3fbf7d; color: #7fe5aa; background: #12271d; }
+.confirm-hint { margin: 0; font-size: 11px; color: #8fbfa3; line-height: 1.5; }
+
+.orphan-reviews {
+  border-top: 1px dashed #33405a;
+  margin-top: 12px;
+  padding-top: 10px;
+  display: grid;
+  gap: 8px;
+}
+.orphan-reviews h3 { font-size: 12px; margin: 0; color: #b9c4d8; }
+.orphan-item { display: grid; gap: 4px; border: 1px solid #2a3346; border-radius: 8px; padding: 8px; }
+.orphan-item p { margin: 0; color: #c3cedf; }
+.orphan-item small { color: #8793a7; }

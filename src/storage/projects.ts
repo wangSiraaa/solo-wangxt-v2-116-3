@@ -60,6 +60,7 @@ export function createProject(name: string, originalXml: string): StoredProject 
     name,
     originalXml,
     marks: [],
+    reviews: [],
     updatedAt: now,
     createdAt: now,
   }
@@ -90,6 +91,9 @@ export async function importProjectFile(file: File): Promise<StoredProject> {
   }
   return {
     ...parsed.project,
+    // 旧版工程包没有核对记录，补空数组；记录始终跟随各自工程。
+    marks: Array.isArray(parsed.project.marks) ? parsed.project.marks : [],
+    reviews: Array.isArray(parsed.project.reviews) ? parsed.project.reviews : [],
     id: crypto.randomUUID(),
     updatedAt: new Date().toISOString(),
   }

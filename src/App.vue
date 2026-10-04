@@ -36,7 +36,7 @@
           <div v-if="projects.length === 0" class="muted">IndexedDB 中还没有工程。</div>
           <div v-for="item in projects" :key="item.id" class="project-row">
             <button class="link-button" @click="loadStoredProject(item)">{{ item.name }}</button>
-            <small>{{ formatDate(item.updatedAt) }} · {{ item.marks.length }} 标记</small>
+            <small>{{ formatDate(item.updatedAt) }} · {{ item.marks.length }} 标记 · {{ item.reviews.length }} 条核对</small>
             <button class="danger" @click="removeStoredProject(item.id)">删除</button>
           </div>
         </section>
@@ -83,10 +83,12 @@
         <div class="score-wrap">
           <ScoreView
             v-if="project && score && path"
+            ref="scoreViewRef"
             :xml="project.originalXml"
             :measures="score.measures"
             :path="path"
             :active-step-index="activeStepIndex"
+            :focused-measure-index="focusedMeasureIndex"
             interactable
             @select-measure="chooseMeasure"
           />
@@ -155,13 +157,89 @@
           </div>
         </section>
 
-        <section class="panel warnings-panel">
-          <h2>记号诊断（不静默忽略）</h2>
-          <p v-if="!path?.warnings.length" class="muted">没有诊断信息。</p>
-          <div v-for="(warning, index) in path?.warnings ?? []" :key="index" :class="['warning', warning.level]">
-            <strong>{{ warning.level === 'error' ? '错误' : warning.level === 'warning' ? '警告' : '信息' }}</strong>
-            <span>{{ warning.message }}</span>
+        <section class="panel checklist-panel">
+          <h2>诊断核对清单</h2>
+          <div :class="['path-conclusion', path?.closed ? 'ok' : 'bad']">
+            路径结论：{{ path?.closed ? '可闭合' : '存在错误，无法按记号闭合' }}
           </div>
+          <p v-if="!path" class="muted">还没有解析诊断。</p>
+          <template v-else>
+            <div class="review-summary">
+              共 {{ diagnosticEntries.length }} 条诊断 ·
+              <span class="status-pending">待确认 {{ pendingCount }}</span> ·
+              <span class="status-confirmed">已确认 {{ confirmedCount }}</span>
+            </div>
+            <div class="review-filters">
+              <button
+                v-for="option in reviewFilters"
+                :key="option.value"
+                :class="['filter-chip', { active: reviewFilter === option.value }]"
+                @click="reviewFilter = option.value"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+
+            <p v-if="!diagnosticEntries.length" class="muted">解析器没有输出诊断。</p>
+            <div
+              v-for="entry in filteredDiagnosticEntries"
+              :key="entry.key"
+              :class="['check-item', entry.warning.level, { confirmed: reviewFor(entry)?.status === 'confirmed' }]"
+            >
+              <div class="check-head">
+                <strong class="check-level">{{ levelLabel(entry.warning.level) }}</strong>
+                <span class="check-code">{{ entry.warning.code }}</span>
+                <span :class="['review-state', reviewFor(entry)?.status ?? 'pending']">
+                  {{ reviewFor(entry)?.status === 'confirmed' ? '已确认' : '待确认' }}
+                </span>
+              </div>
+              <p class="check-message">{{ entry.warning.message }}</p>
+              <button
+                v-if="entry.measureIndex !== null && score"
+                class="locate-button"
+                @click="locateEntry(entry)"
+              >
+                定位到相关小节 {{ score.measures[entry.measureIndex]?.number }}
+              </button>
+              <span v-else class="no-location">无具体小节位置（全局诊断）</span>
+
+              <label class="note-label" :for="`note-${entry.key}`">本地备注（不写回 XML、不改变错误结论）</label>
+              <textarea
+                :id="`note-${entry.key}`"
+                :value="reviewFor(entry)?.note ?? ''"
+                placeholder="核对后写说明，例如：已对照纸谱确认，应为第 12 小节 Segno。"
+                @input="onNoteInput(entry, $event)"
+              ></textarea>
+              <div class="review-actions">
+                <button
+                  :class="['state-button', { active: (reviewFor(entry)?.status ?? 'pending') === 'pending' }]"
+                  @click="setStatus(entry, 'pending')"
+                >
+                  标为待确认
+                </button>
+                <button
+                  :class="['state-button confirm', { active: reviewFor(entry)?.status === 'confirmed' }]"
+                  @click="setStatus(entry, 'confirmed')"
+                >
+                  标为已确认
+                </button>
+              </div>
+              <p v-if="reviewFor(entry)?.status === 'confirmed'" class="confirm-hint">
+                仅表示团队已核对此条诊断；上方错误级别与左侧路径闭合结论保持原样，不代表路径已修复。
+              </p>
+            </div>
+
+            <div v-if="orphanReviews.length" class="orphan-reviews">
+              <h3>当前 XML 中已不存在的旧核对记录（{{ orphanReviews.length }}）</h3>
+              <p class="muted">这些备注属于本工程但已无法对应到解析诊断；换工程不会混用到这里。</p>
+              <article v-for="review in orphanReviews" :key="review.key" class="orphan-item">
+                <strong>{{ levelLabel(review.level) }} · {{ review.code }}</strong>
+                <p>{{ review.message }}</p>
+                <small v-if="review.note">备注：{{ review.note }}</small>
+                <button class="danger" @click="removeReview(review.key)">删除该记录</button>
+              </article>
+            </div>
+          </template>
         </section>
       </aside>
     </main>
@@ -182,8 +260,15 @@ import {
   saveProject,
 } from './storage/projects'
 import { arrivalsFor, buildPerformancePath, formatTime, parseMusicXml, type ParsedScore } from './score/parser'
+import { buildDiagnosticEntries, type DiagnosticEntry } from './score/diagnostics'
 import { sampleLibrary } from './score/samples'
-import type { RehearsalMark, StoredProject } from './score/types'
+import type {
+  DiagnosticReview,
+  RehearsalMark,
+  ReviewStatus,
+  StoredProject,
+  WarningLevel,
+} from './score/types'
 
 const projects = ref<StoredProject[]>([])
 const project = ref<StoredProject | null>(null)
@@ -192,17 +277,42 @@ const path = ref<ReturnType<typeof buildPerformancePath> | null>(null)
 const selectedMeasureIndex = ref(0)
 const selectedOccurrence = ref(1)
 const activeStepIndex = ref<number | null>(null)
+const focusedMeasureIndex = ref<number | null>(null)
 const currentScoreTime = ref(0)
 const playing = ref(false)
 const markLabel = ref('')
 const markComment = ref('')
+const reviewFilter = ref<'all' | ReviewStatus>('all')
+const scoreViewRef = ref<InstanceType<typeof ScoreView> | null>(null)
 const beatEvents = ref<BeatEvent[]>([])
 let metronome: Metronome | null = null
 let rafHandle = 0
 
+const reviewFilters = [
+  { value: 'all' as const, label: '全部' },
+  { value: 'pending' as const, label: '待确认' },
+  { value: 'confirmed' as const, label: '已确认' },
+]
+
 const selectedMeasure = computed(() => score.value?.measures[selectedMeasureIndex.value] ?? null)
 const selectedOccurrences = computed(() => path.value ? arrivalsFor(path.value, selectedMeasureIndex.value) : [])
 const playProgress = computed(() => path.value && path.value.totalSeconds > 0 ? currentScoreTime.value / path.value.totalSeconds : 0)
+const diagnosticEntries = computed<DiagnosticEntry[]>(() =>
+  path.value && score.value ? buildDiagnosticEntries(path.value.warnings, score.value.measures) : [],
+)
+const currentEntryKeys = computed(() => new Set(diagnosticEntries.value.map((entry) => entry.key)))
+const filteredDiagnosticEntries = computed(() => {
+  if (reviewFilter.value === 'all') return diagnosticEntries.value
+  return diagnosticEntries.value.filter((entry) => (reviewMap.value.get(entry.key)?.status ?? 'pending') === reviewFilter.value)
+})
+const reviewMap = computed(() => new Map((project.value?.reviews ?? []).map((review) => [review.key, review])))
+const confirmedCount = computed(
+  () => diagnosticEntries.value.filter((entry) => reviewMap.value.get(entry.key)?.status === 'confirmed').length,
+)
+const pendingCount = computed(() => diagnosticEntries.value.length - confirmedCount.value)
+const orphanReviews = computed(() =>
+  (project.value?.reviews ?? []).filter((review) => !currentEntryKeys.value.has(review.key)),
+)
 
 async function refreshProjectList(): Promise<void> {
   projects.value = await listProjects()
@@ -215,6 +325,7 @@ function analyze(xml: string): void {
   beatEvents.value = buildBeatEvents(path.value.steps, parsed.measures)
   selectedMeasureIndex.value = 0
   selectedOccurrence.value = path.value.arrivals[0]?.occurrences[0] ?? 1
+  focusedMeasureIndex.value = null
   stopPlayback()
 }
 
@@ -383,6 +494,61 @@ function removeMark(id: string): void {
   void saveCurrentProject()
 }
 
+function levelLabel(level: WarningLevel): string {
+  return level === 'error' ? '错误' : level === 'warning' ? '警告' : '信息'
+}
+
+function reviewFor(entry: DiagnosticEntry): DiagnosticReview | undefined {
+  return reviewMap.value.get(entry.key)
+}
+
+function upsertReview(entry: DiagnosticEntry, patch: Partial<DiagnosticReview>): void {
+  if (!project.value) return
+  const existing = project.value.reviews.find((review) => review.key === entry.key)
+  if (existing) {
+    Object.assign(existing, patch, { updatedAt: new Date().toISOString() })
+  } else {
+    project.value.reviews.push({
+      key: entry.key,
+      note: '',
+      status: 'pending',
+      updatedAt: new Date().toISOString(),
+      // 诊断快照只用于该诊断在日后 XML 中消失时展示，不参与解析。
+      code: entry.warning.code,
+      level: entry.warning.level,
+      message: entry.warning.message,
+      measureNumber: entry.warning.measureNumber,
+      ...patch,
+    })
+  }
+}
+
+function saveNote(entry: DiagnosticEntry, note: string): void {
+  upsertReview(entry, { note })
+}
+
+function onNoteInput(entry: DiagnosticEntry, event: Event): void {
+  saveNote(entry, (event.target as HTMLTextAreaElement).value)
+}
+
+function setStatus(entry: DiagnosticEntry, status: ReviewStatus): void {
+  upsertReview(entry, { status })
+}
+
+function removeReview(key: string): void {
+  if (!project.value) return
+  project.value.reviews = project.value.reviews.filter((review) => review.key !== key)
+  void saveCurrentProject()
+}
+
+function locateEntry(entry: DiagnosticEntry): void {
+  if (entry.measureIndex === null) return
+  focusedMeasureIndex.value = entry.measureIndex
+  chooseMeasure(entry.measureIndex)
+  // 覆盖层随高亮重绘后再滚动到该小节。
+  window.requestAnimationFrame(() => scoreViewRef.value?.scrollToMeasure(entry.measureIndex as number))
+}
+
 function formatDate(iso: string): string {
   return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(iso))
 }
@@ -405,6 +571,13 @@ onBeforeUnmount(() => {
   stopPlayback()
 })
 
-void refreshProjectList()
-loadSample(sampleLibrary[0])
+async function bootstrap(): Promise<void> {
+  // 刷新后恢复最近保存的工程，使诊断备注/状态继续存在；没有任何工程时才打开内置样例。
+  const stored = await listProjects()
+  projects.value = stored
+  if (stored[0]) loadStoredProject(stored[0])
+  else loadSample(sampleLibrary[0])
+}
+
+void bootstrap()
 </script>
